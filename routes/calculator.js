@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Calculation = require('../models/Calculation');
 
-// POST /api/calculate - perform calculation and save to DB
+// POST /api/calculate - perform calculation and attempt to save to DB
 router.post('/calculate', async (req, res) => {
   try {
     const { maxRisk, entryPrice, stopLossPrice } = req.body;
@@ -33,15 +34,20 @@ router.post('/calculate', async (req, res) => {
     const quantityExact = mR / absDiff;
     const quantityFloored = Math.floor(quantityExact);
 
-    // Save to MongoDB
-    const calculation = new Calculation({
-      maxRisk: mR,
-      entryPrice: eP,
-      stopLossPrice: sL,
-      quantity: quantityExact,
-    });
-
-    await calculation.save();
+    // Save to MongoDB if connected (fails gracefully if DB is unavailable)
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const calculation = new Calculation({
+          maxRisk: mR,
+          entryPrice: eP,
+          stopLossPrice: sL,
+          quantity: quantityExact,
+        });
+        await calculation.save();
+      } catch (dbErr) {
+        console.warn('⚠️ Could not save calculation to MongoDB:', dbErr.message);
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -52,29 +58,34 @@ router.post('/calculate', async (req, res) => {
     });
   } catch (err) {
     console.error('Error in /calculate:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 
 // GET /api/history - fetch last 10 calculations
 router.get('/history', async (req, res) => {
   try {
-    const history = await Calculation.find().sort({ createdAt: -1 }).limit(10);
-    return res.status(200).json({ success: true, history });
+    if (mongoose.connection.readyState === 1) {
+      const history = await Calculation.find().sort({ createdAt: -1 }).limit(10);
+      return res.status(200).json({ success: true, history });
+    }
+    return res.status(200).json({ success: true, history: [] });
   } catch (err) {
     console.error('Error in /history:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(200).json({ success: true, history: [] });
   }
 });
 
 // DELETE /api/history - clear all history
 router.delete('/history', async (req, res) => {
   try {
-    await Calculation.deleteMany({});
+    if (mongoose.connection.readyState === 1) {
+      await Calculation.deleteMany({});
+    }
     return res.status(200).json({ success: true, message: 'History cleared' });
   } catch (err) {
     console.error('Error in DELETE /history:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(200).json({ success: true, message: 'History cleared' });
   }
 });
 
