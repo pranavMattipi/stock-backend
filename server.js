@@ -19,13 +19,13 @@ const connectDB = async () => {
     return;
   }
   const uri = process.env.MONGO_URI;
-  if (!uri || (process.env.VERCEL && uri.includes('localhost'))) {
-    // Skip connecting to local mongo in Vercel serverless environment if no cloud Atlas URI is provided
+  if (!uri || uri.includes('localhost')) {
+    // Skip connecting to local mongo in Vercel serverless environment if no MongoDB Atlas URI is provided
     return;
   }
   try {
     await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 2000, // 2s timeout instead of hanging 10s
+      serverSelectionTimeoutMS: 2000,
     });
     isConnected = true;
     console.log('✅ Connected to MongoDB');
@@ -34,9 +34,11 @@ const connectDB = async () => {
   }
 };
 
-// Middleware to ensure DB connection attempt before handling requests
-app.use(async (req, res, next) => {
-  await connectDB();
+// Non-blocking DB connection middleware
+app.use((req, res, next) => {
+  if (process.env.MONGO_URI && !process.env.MONGO_URI.includes('localhost')) {
+    connectDB().catch(err => console.error('DB connect error:', err));
+  }
   next();
 });
 
